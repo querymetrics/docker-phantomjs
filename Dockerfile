@@ -1,32 +1,40 @@
-FROM debian:jessie
-MAINTAINER Werner Beroux <werner@beroux.com>
+FROM alpine:3.4
 
-# 1. Install runtime dependencies
-# 2. Install official PhantomJS release
-# 3. Clean up
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        bzip2 \
-        libfontconfig \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        curl \
-    && mkdir /tmp/phantomjs \
-    && curl -L https://bitbucket.org/ariya/phantomjs/downloads/phantomjs-2.1.1-linux-x86_64.tar.bz2 \
-           | tar -xj --strip-components=1 -C /tmp/phantomjs \
-    && cd /tmp/phantomjs \
-    && mv bin/phantomjs /usr/local/bin \
-    && cd \
-    && apt-get purge --auto-remove -y \
-        curl \
-    && apt-get clean \
-    && rm -rf /tmp/* /var/lib/apt/lists/*
+# Install runtime dependencies.
+RUN apk add --no-cache \
+      ca-certificates \
+      bzip2 \
+      fontconfig \
+      libstdc++
+
+RUN set -x && \
+    apk add --no-cache -t .deps \
+      curl \
+      g++ \
+      git \
+      python && \
+    # Install glibc on Alpine (required by docker-compose) from
+    # https://github.com/sgerrand/alpine-pkg-glibc
+    # See also https://github.com/gliderlabs/docker-alpine/issues/11
+    GLIBC_VERSION='2.23-r3' && \
+    curl -Lo /etc/apk/keys/sgerrand.rsa.pub https://raw.githubusercontent.com/sgerrand/alpine-pkg-glibc/master/sgerrand.rsa.pub && \
+    curl -Lo glibc.apk https://github.com/sgerrand/alpine-pkg-glibc/releases/download/$GLIBC_VERSION/glibc-$GLIBC_VERSION.apk && \
+    curl -Lo glibc-bin.apk https://github.com/sgerrand/alpine-pkg-glibc/releases/download/$GLIBC_VERSION/glibc-bin-$GLIBC_VERSION.apk && \
+    apk update && \
+    apk add glibc.apk glibc-bin.apk && \
+    rm -rf /var/cache/apk/* glibc.apk glibkc-bin.apk && \
+    \
+    # Build PhantomJs from source code.
+    # TODO: Currently build is broken, see also commit 36c6996bb59e852bb7937c78f61af6a40996d0a5 for all requirements.
+    git clone --recurse-submodules https://github.com/ariya/phantomjs /tmp/phantomjs && \
+    cd /tmp/phantomjs && \
+    ./build.py -confirm --silent --jobs 2 && \
+    # Clean-up and check.
+    apk del .deps && \
+    phantomjs --version
 
 # Run as non-root user
-RUN useradd --system --uid 72379 -m --shell /usr/sbin/nologin phantomjs
+RUN adduser -S -D -H -u 72379 -s /usr/sbin/nologin phantomjs
 USER phantomjs
 
 EXPOSE 8910
